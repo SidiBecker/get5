@@ -320,7 +320,7 @@ public void OnPluginStart() {
   g_SetClientClanTagCvar = CreateConVar("get5_set_client_clan_tags", "1",
                                         "Whether to set client clan tags to player ready status.");
   g_SetHostnameCvar = CreateConVar(
-      "get5_hostname_format", "Get5: {TEAM1} vs {TEAM2}",
+      "get5_hostname_format", "1ª Game Office Sysmo: {TEAM1} vs {TEAM2}",
       "Template that the server hostname will follow when a match is live. Leave field blank to disable. Valid parameters are: {MAPNUMBER}, {MATCHID}, {SERVERID}, {MAPNAME}, {TIME}, {TEAM1}, {TEAM2}");
   g_StatsPathFormatCvar =
       CreateConVar("get5_stats_path_format", "get5_matchstats_{MATCHID}.cfg",
