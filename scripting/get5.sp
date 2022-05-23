@@ -69,8 +69,10 @@ ConVar g_MaxBackupAgeCvar;
 ConVar g_MaxPausesCvar;
 ConVar g_MaxPauseTimeCvar;
 ConVar g_MessagePrefixCvar;
+ConVar g_PauseOnVetoCvar;
 ConVar g_PausingEnabledCvar;
 ConVar g_PrettyPrintJsonCvar;
+ConVar g_ReadyTeamTagCvar;
 ConVar g_ResetPausesEachHalfCvar;
 ConVar g_ServerIdCvar;
 ConVar g_SetClientClanTagCvar;
@@ -137,14 +139,15 @@ bool g_SetTeamClutching[4];
 int g_RoundKills[MAXPLAYERS + 1];  // kills per round each client has gotten
 int g_RoundClutchingEnemyCount[MAXPLAYERS +
                                1];  // number of enemies left alive when last alive on your team
-int g_LastFlashBangThrower = -1;    // last client to have a flashbang detonate
-int g_RoundFlashedBy[MAXPLAYERS + 1];
 bool g_TeamFirstKillDone[MATCHTEAM_COUNT];
 bool g_TeamFirstDeathDone[MATCHTEAM_COUNT];
 int g_PlayerKilledBy[MAXPLAYERS + 1];
 float g_PlayerKilledByTime[MAXPLAYERS + 1];
 int g_DamageDone[MAXPLAYERS + 1][MAXPLAYERS + 1];
 int g_DamageDoneHits[MAXPLAYERS + 1][MAXPLAYERS + 1];
+bool g_DamageDoneKill[MAXPLAYERS + 1][MAXPLAYERS + 1];
+bool g_DamageDoneAssist[MAXPLAYERS + 1][MAXPLAYERS + 1];
+bool g_DamageDoneFlashAssist[MAXPLAYERS + 1][MAXPLAYERS + 1];
 bool g_PlayerRoundKillOrAssistOrTradedDeath[MAXPLAYERS + 1];
 bool g_PlayerSurvived[MAXPLAYERS + 1];
 KeyValues g_StatsKv;
@@ -163,6 +166,7 @@ bool g_TeamGivenStopCommand[MATCHTEAM_COUNT];
 bool g_InExtendedPause;
 int g_TeamPauseTimeUsed[MATCHTEAM_COUNT];
 int g_TeamPausesUsed[MATCHTEAM_COUNT];
+int g_PauseTimeUsed = 0;
 int g_ReadyTimeWaitingUsed = 0;
 char g_DefaultTeamColors[][] = {
     TEAM1_COLOR,
@@ -209,6 +213,8 @@ Handle g_OnPreLoadMatchConfig = INVALID_HANDLE;
 Handle g_OnRoundStatsUpdated = INVALID_HANDLE;
 Handle g_OnSeriesInit = INVALID_HANDLE;
 Handle g_OnSeriesResult = INVALID_HANDLE;
+Handle g_OnMatchPaused = INVALID_HANDLE;
+Handle g_OnMatchUnpaused = INVALID_HANDLE;
 
 #include "get5/util.sp"
 #include "get5/version.sp"
@@ -268,8 +274,8 @@ public void OnPluginStart() {
       CreateConVar("get5_print_damage", "0", "Whether damage reports are printed on round end.");
   g_DamagePrintFormat = CreateConVar(
       "get5_damageprint_format",
-      "--> ({DMG_TO} dmg / {HITS_TO} hits) to ({DMG_FROM} dmg / {HITS_FROM} hits) from {NAME} ({HEALTH} HP)",
-      "Format of the damage output string. Avaliable tags are in the default, color tags such as {LIGHT_RED} and {GREEN} also work.");
+      "- [{KILL_TO}] ({DMG_TO} in {HITS_TO}) to [{KILL_FROM}] ({DMG_FROM} in {HITS_FROM}) from {NAME} ({HEALTH} HP)",
+      "Format of the damage output string. Available tags are in the default, color tags such as {LIGHT_RED} and {GREEN} also work. {KILL_TO} and {KILL_FROM} indicate kills, assists and flash assists as booleans, all of which are mutually exclusive.");
   g_CheckAuthsCvar =
       CreateConVar("get5_check_auths", "1",
                    "If set to 0, get5 will not force players to the correct team based on steamid");
@@ -311,9 +317,15 @@ public void OnPluginStart() {
   g_ResetPausesEachHalfCvar =
       CreateConVar("get5_reset_pauses_each_half", "1",
                    "Whether pause limits will be reset each halftime period");
+  g_PauseOnVetoCvar =
+      CreateConVar("get5_pause_on_veto", "0",
+                   "Set 1 to Pause Match during Veto time");
   g_PausingEnabledCvar = CreateConVar("get5_pausing_enabled", "1", "Whether pausing is allowed.");
   g_PrettyPrintJsonCvar = CreateConVar("get5_pretty_print_json", "1",
                                        "Whether all JSON output is in pretty-print format.");
+  g_ReadyTeamTagCvar =
+      CreateConVar("get5_ready_team_tag", "1",
+                   "Adds [READY] [NOT READY] Tags before Team Names. 0 to disable it.");
   g_ServerIdCvar = CreateConVar(
       "get5_server_id", "0",
       "Integer that identifies your server. This is used in temp files to prevent collisions.");
@@ -486,6 +498,8 @@ public void OnPluginStart() {
   g_OnSeriesInit = CreateGlobalForward("Get5_OnSeriesInit", ET_Ignore);
   g_OnSeriesResult =
       CreateGlobalForward("Get5_OnSeriesResult", ET_Ignore, Param_Cell, Param_Cell, Param_Cell);
+  g_OnMatchPaused = CreateGlobalForward("Get5_OnMatchPaused", ET_Ignore, Param_Cell, Param_Cell);
+  g_OnMatchUnpaused = CreateGlobalForward("Get5_OnMatchUnpaused", ET_Ignore, Param_Cell);
 
   /** Start any repeating timers **/
   CreateTimer(CHECK_READY_TIMER_INTERVAL, Timer_CheckReady, _, TIMER_REPEAT);
@@ -670,6 +684,12 @@ public Action Timer_CheckReady(Handle timer) {
   if (g_GameState == Get5State_None) {
     return Plugin_Continue;
   }
+  
+  if (g_DoingBackupRestoreNow) {
+    LogDebug("Timer_CheckReady: Waiting for restore");
+    return Plugin_Continue;
+  }
+
 
   CheckTeamNameStatus(MatchTeam_Team1);
   CheckTeamNameStatus(MatchTeam_Team2);
@@ -681,6 +701,7 @@ public Action Timer_CheckReady(Handle timer) {
       // We don't wait for spectators when initiating veto
       LogDebug("Timer_CheckReady: starting veto");
       ChangeState(Get5State_Veto);
+      ServerCommand("mp_restartgame 1");
       CreateVeto();
     } else {
       CheckReadyWaitingTimes();
@@ -879,7 +900,7 @@ public Action Command_DumpStats(int client, int args) {
     GetCmdArg(1, arg, sizeof(arg));
   }
 
-  if (g_StatsKv.ExportToFile(arg)) {
+  if (DumpToFilePath(arg)) {
     g_StatsKv.Rewind();
     ReplyToCommand(client, "Saved match stats to %s", arg);
   } else {
@@ -1274,6 +1295,11 @@ public void SwapSides() {
     LOOP_TEAMS(team) {
       g_TeamPauseTimeUsed[team] = 0;
       g_TeamPausesUsed[team] = 0;
+    }
+    // Reset the built-in timeout counter of the game
+    if (g_MaxPausesCvar.IntValue > 0) {
+      GameRules_SetProp("m_nTerroristTimeOuts", g_MaxPausesCvar.IntValue);
+      GameRules_SetProp("m_nCTTimeOuts", g_MaxPausesCvar.IntValue);
     }
   }
 }

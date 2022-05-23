@@ -146,7 +146,7 @@ public bool LoadMatchFile(const char[] config) {
   Call_PushString(config);
   Call_Finish();
 
-  if (StrContains(config, "json") >= 0) {
+  if (IsJSONPath(config)) {
     char configFile[PLATFORM_MAX_PATH];
     strcopy(configFile, sizeof(configFile), config);
     if (!FileExists(configFile)) {
@@ -349,6 +349,7 @@ static bool LoadMatchFromKv(KeyValues kv) {
     g_BO2Match = true;
     g_MapsToWin = 2;
   } else {
+    g_BO2Match = false;
     if (mapsToWin >= 1) {
       g_MapsToWin = mapsToWin;
     } else {
@@ -461,6 +462,7 @@ static bool LoadMatchFromJson(JSON_Object json) {
     g_BO2Match = true;
     g_MapsToWin = 2;
   } else {
+    g_BO2Match = false;
     if (mapsToWin >= 1) {
       g_MapsToWin = mapsToWin;
     } else {
@@ -614,13 +616,13 @@ static void LoadTeamData(KeyValues kv, MatchTeam matchTeam) {
 }
 
 static void LoadDefaultMapList(ArrayList list) {
-  list.PushString("de_cache");
+  list.PushString("de_ancient");
   list.PushString("de_dust2");
   list.PushString("de_inferno");
   list.PushString("de_mirage");
   list.PushString("de_nuke");
   list.PushString("de_overpass");
-  list.PushString("de_train");
+  list.PushString("de_vertigo");
 
   if (g_SkipVeto) {
     char currentMap[PLATFORM_MAX_PATH];

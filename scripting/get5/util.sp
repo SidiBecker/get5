@@ -209,7 +209,7 @@ stock bool IsPaused() {
 }
 
 // Pauses and returns if the match will automatically unpause after the duration ends.
-stock bool Pause(int pauseTime = 0, int csTeam = CS_TEAM_NONE) {
+stock bool Pause(int pauseTime = 0, int csTeam = CS_TEAM_NONE, int pausesLeft = 1) {
   if (pauseTime == 0 || csTeam == CS_TEAM_SPECTATOR || csTeam == CS_TEAM_NONE) {
     ServerCommand("mp_pause_match");
     return false;
@@ -218,9 +218,11 @@ stock bool Pause(int pauseTime = 0, int csTeam = CS_TEAM_NONE) {
     if (csTeam == CS_TEAM_T) {
       GameRules_SetProp("m_bTerroristTimeOutActive", true);
       GameRules_SetPropFloat("m_flTerroristTimeOutRemaining", float(pauseTime));
+      GameRules_SetProp("m_nTerroristTimeOuts", pausesLeft);
     } else if (csTeam == CS_TEAM_CT) {
       GameRules_SetProp("m_bCTTimeOutActive", true);
       GameRules_SetPropFloat("m_flCTTimeOutRemaining", float(pauseTime));
+      GameRules_SetProp("m_nCTTimeOuts", pausesLeft);
     }
     return true;
   }
@@ -260,13 +262,17 @@ stock void SetTeamInfo(int csTeam, const char[] name, const char[] flag = "",
 
   // Add Ready/Not ready tags to team name if in warmup.
   char taggedName[MAX_CVAR_LENGTH];
-  if ((g_GameState == Get5State_Warmup || g_GameState == Get5State_PreVeto) &&
-      !g_DoingBackupRestoreNow) {
-    MatchTeam matchTeam = CSTeamToMatchTeam(csTeam);
-    if (IsTeamReady(matchTeam)) {
-      Format(taggedName, sizeof(taggedName), "%T %s", "ReadyTag", LANG_SERVER, name);
+  if (g_ReadyTeamTagCvar.BoolValue) {
+    if ((g_GameState == Get5State_Warmup || g_GameState == Get5State_PreVeto) &&
+        !g_DoingBackupRestoreNow) {
+      MatchTeam matchTeam = CSTeamToMatchTeam(csTeam);
+      if (IsTeamReady(matchTeam)) {
+        Format(taggedName, sizeof(taggedName), "%T %s", "ReadyTag", LANG_SERVER, name);
+      } else {
+        Format(taggedName, sizeof(taggedName), "%T %s", "NotReadyTag", LANG_SERVER, name);
+      }
     } else {
-      Format(taggedName, sizeof(taggedName), "%T %s", "NotReadyTag", LANG_SERVER, name);
+      strcopy(taggedName, sizeof(taggedName), name);
     }
   } else {
     strcopy(taggedName, sizeof(taggedName), name);
@@ -362,6 +368,8 @@ stock void FormatMapName(const char[] mapName, char[] buffer, int len, bool clea
       strcopy(buffer, len, "Nuke");
     } else if (StrEqual(buffer, "de_vertigo")) {
       strcopy(buffer, len, "Vertigo");
+    } else if (StrEqual(buffer, "de_ancient")) {
+      strcopy(buffer, len, "Ancient");
     }
   }
 }
@@ -709,4 +717,22 @@ public bool DeleteFileIfExists(const char[] path) {
   }
 
   return true;
+}
+
+stock void GetPauseType(PauseType pause, char[] buffer, int len) {
+  if (pause == PauseType_Tech) {
+    Format(buffer, len, "technical");
+  } else if (pause == PauseType_Tactical) {
+    Format(buffer, len, "tactical");
+  } else {
+    Format(buffer, len, "unknown");
+  }
+}
+public bool IsJSONPath(const char[] path) {
+  int length = strlen(path);
+  if (length >= 5) {
+    return strcmp(path[length - 5], ".json", false) == 0;
+  } else {
+    return false;
+  }
 }
