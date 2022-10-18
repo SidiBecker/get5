@@ -178,7 +178,7 @@
     }
     "MatchIsLiveInfoMessage"
     {
-        "pt"            "A partida é {GREEN}LIVE"
+        "pt"            "A partida {GREEN}COMEÇOU"
     }
     "KnifeIn5SecInfoMessage"
     {
